@@ -21,3 +21,5 @@ jobs:
           username: 'topcarryu'
           password: '${{ secrets.DOCKER_PASSWORD }}'
           platforms: linux/amd64,linux/arm64
+          context: .
+          file: ./resources/Dockerfile
