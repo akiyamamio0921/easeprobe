@@ -13,10 +13,19 @@ RUN --mount=type=cache,mode=0777,id=gomodcache,target=/go/pkg/mod \
     make
 
 FROM alpine:latest
-RUN apk update && apk add tini tzdata busybox-extras curl redis
+
+ENV PATH=/opt/:$PATH \
+    PROBE_CONFIG=/opt/config.yaml
+
 WORKDIR /opt/
+
 COPY --from=builder /go/src/github.com/megaease/easeprobe/build/bin/* ./
-COPY --from=builder /go/src/github.com/megaease/easeprobe/resources/scripts/entrypoint.sh /
-ENV PATH /opt/:$PATH
-ENV PROBE_CONFIG /opt/config.yaml
-ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+COPY --from=builder /go/src/github.com/megaease/easeprobe/resources/scripts/entrypoint.sh ./
+
+RUN set -x \
+    && apk update \
+    && apk add  --no-cache tini tzdata busybox-extras curl redis upx \
+    && upx ./easeprobe \
+    && rm -rf /var/cache/apk/*
+
+ENTRYPOINT [ "/sbin/tini", "--", "/entrypoint.sh" ]
