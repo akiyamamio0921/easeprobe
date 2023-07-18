@@ -20,7 +20,7 @@ ENV PATH=/opt/:$PATH \
 WORKDIR /opt/
 
 COPY --from=builder /go/src/github.com/megaease/easeprobe/build/bin/* ./
-COPY --from=builder /go/src/github.com/megaease/easeprobe/resources/scripts/entrypoint.sh ./
+COPY --from=builder /go/src/github.com/megaease/easeprobe/resources/scripts/entrypoint.sh /
 
 RUN set -x \
     && apk update \
