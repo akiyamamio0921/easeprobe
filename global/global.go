@@ -69,6 +69,14 @@ const (
 	DefaultChannelName = "__EaseProbe_Channel__"
 	// DefaultStatusChangeThresholdSetting is the threshold of status change
 	DefaultStatusChangeThresholdSetting = 1
+	// DefaultNotificationStrategy is the default notify strategy
+	DefaultNotificationStrategy = RegularStrategy
+	// DefaultMaxNotificationTimes is the default max notification times
+	DefaultMaxNotificationTimes = 1
+	// DefaultNotificationFactor is the default notification factor
+	DefaultNotificationFactor = 1
+	// DefaultConfigFileCheckInterval is the default config file checking interval
+	DefaultConfigFileCheckInterval = time.Second * 5
 )
 
 const (
@@ -304,4 +312,23 @@ func CommandLine(cmd string, args []string) string {
 		result += " " + arg
 	}
 	return result
+}
+
+// EscapeQuote escape the string the single quote, double quote, and backtick
+func EscapeQuote(str string) string {
+	type Escape struct {
+		From string
+		To   string
+	}
+	escape := []Escape{
+		{From: "`", To: ""}, // remove the backtick
+		{From: `\`, To: `\\`},
+		{From: `'`, To: `\'`},
+		{From: `"`, To: `\"`},
+	}
+
+	for _, e := range escape {
+		str = strings.ReplaceAll(str, e.From, e.To)
+	}
+	return str
 }

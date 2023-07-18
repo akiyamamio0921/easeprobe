@@ -173,7 +173,7 @@ func (h *HTTP) Config(gConf global.ProbeSettings) error {
 
 	h.metrics = newMetrics(kind, tag)
 
-	log.Debugf("[%s / %s] configuration: %+v", h.ProbeKind, h.ProbeName, h)
+	log.Debugf("[%s / %s] configuration: %+v", h.ProbeKind, h.ProbeName, *h)
 	return nil
 }
 
@@ -234,13 +234,14 @@ func (h *HTTP) DoProbe() (bool, string) {
 		return false, fmt.Sprintf("HTTP Status Code is %d. It missed in %v", resp.StatusCode, h.SuccessCode)
 	}
 
+	result := true
 	message := fmt.Sprintf("HTTP Status Code is %d", resp.StatusCode)
 
 	log.Debugf("[%s / %s] - %s", h.ProbeKind, h.ProbeName, h.TextChecker.String())
 	if err := h.Check(string(response)); err != nil {
 		log.Errorf("[%s / %s] - %v", h.ProbeKind, h.ProbeName, err)
 		message += fmt.Sprintf(". Error: %v", err)
-		return false, message
+		result = false
 	}
 
 	if h.Evaluator.DocType != eval.Unsupported && h.Evaluator.Extractor != nil &&
@@ -256,13 +257,17 @@ func (h *HTTP) DoProbe() (bool, string) {
 		}
 		if !result {
 			log.Errorf("[%s / %s] - expression is evaluated to false!", h.ProbeKind, h.ProbeName)
-			message += fmt.Sprintf(". Expression is evaluated to false!")
+			message += ". Expression is evaluated to false!"
+			for k, v := range h.Evaluator.ExtractedValues {
+				message += fmt.Sprintf(" [%s = %v]", k, v)
+				log.Debugf("[%s / %s] - Expression Value: [%s] = [%v]", h.ProbeKind, h.ProbeName, k, v)
+			}
 			return false, message
 		}
 		log.Debugf("[%s / %s] - expression is evaluated to true!", h.ProbeKind, h.ProbeName)
 	}
 
-	return true, message
+	return result, message
 }
 
 // ExportMetrics export HTTP metrics
@@ -274,47 +279,56 @@ func (h *HTTP) ExportMetrics(resp *http.Response) {
 		len = int(resp.ContentLength)
 	}
 	h.metrics.StatusCode.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Inc()
 
 	h.metrics.ContentLen.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(float64(len))
 
 	h.metrics.DNSDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.dnsTook))
 
 	h.metrics.ConnectDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.connTook))
 
 	h.metrics.TLSDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.tlsTook))
 
 	h.metrics.SendDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.sendTook))
 
 	h.metrics.WaitDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.waitTook))
 
 	h.metrics.TransferDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.transferTook))
 
 	h.metrics.TotalDuration.With(prometheus.Labels{
-		"name":   h.ProbeName,
-		"status": fmt.Sprintf("%d", code),
+		"name":     h.ProbeName,
+		"status":   fmt.Sprintf("%d", code),
+		"endpoint": h.ProbeResult.Endpoint,
 	}).Set(toMS(h.traceStats.totalTook))
 }

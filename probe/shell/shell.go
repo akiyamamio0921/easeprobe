@@ -62,7 +62,7 @@ func (s *Shell) Config(gConf global.ProbeSettings) error {
 
 	s.metrics = newMetrics(kind, tag)
 
-	log.Debugf("[%s / %s] configuration: %+v, %+v", s.ProbeKind, s.ProbeName, s, s.Result())
+	log.Debugf("[%s / %s] configuration: %+v", s.ProbeKind, s.ProbeName, *s)
 	return nil
 }
 
@@ -95,7 +95,7 @@ func (s *Shell) DoProbe() (bool, string) {
 			message = fmt.Sprintf("Error: %v, ExitCode(null), Output:%s",
 				err, probe.CheckEmpty(string(output)))
 		}
-		log.Errorf(message)
+		log.Errorf("[%s / %s] - %s", s.ProbeKind, s.ProbeName, message)
 		status = false
 	}
 	log.Debugf("[%s / %s] - %s", s.ProbeKind, s.ProbeName, global.CommandLine(s.Command, s.Args))
@@ -116,12 +116,14 @@ func (s *Shell) DoProbe() (bool, string) {
 // ExportMetrics export shell metrics
 func (s *Shell) ExportMetrics() {
 	s.metrics.ExitCode.With(prometheus.Labels{
-		"name": s.ProbeName,
-		"exit": fmt.Sprintf("%d", s.exitCode),
+		"name":     s.ProbeName,
+		"exit":     fmt.Sprintf("%d", s.exitCode),
+		"endpoint": s.ProbeResult.Endpoint,
 	}).Inc()
 
 	s.metrics.OutputLen.With(prometheus.Labels{
-		"name": s.ProbeName,
-		"exit": fmt.Sprintf("%d", s.exitCode),
+		"name":     s.ProbeName,
+		"exit":     fmt.Sprintf("%d", s.exitCode),
+		"endpoint": s.ProbeResult.Endpoint,
 	}).Set(float64(s.outputLen))
 }

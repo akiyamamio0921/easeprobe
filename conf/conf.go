@@ -19,6 +19,7 @@
 package conf
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	httpClient "net/http"
@@ -37,6 +38,7 @@ import (
 	"github.com/megaease/easeprobe/probe/client"
 	"github.com/megaease/easeprobe/probe/host"
 	"github.com/megaease/easeprobe/probe/http"
+	"github.com/megaease/easeprobe/probe/ping"
 	"github.com/megaease/easeprobe/probe/shell"
 	"github.com/megaease/easeprobe/probe/ssh"
 	"github.com/megaease/easeprobe/probe/tcp"
@@ -99,6 +101,7 @@ type Probe struct {
 	Interval                             time.Duration `yaml:"interval" json:"interval,omitempty" jsonschema:"type=string,format=duration,title=Probe Interval,description=the interval of probe,default=1m"`
 	Timeout                              time.Duration `yaml:"timeout" json:"timeout,omitempty" jsonschema:"type=string,format=duration,title=Probe Timeout,description=the timeout of probe,default=30s"`
 	global.StatusChangeThresholdSettings `yaml:",inline" json:",inline"`
+	global.NotificationStrategySettings  `yaml:"alert" json:"alert" jsonschema:"title=Alert,description=the alert settings"`
 }
 
 // SLAReport is the settings for SLA report
@@ -106,7 +109,7 @@ type SLAReport struct {
 	Schedule Schedule `yaml:"schedule" json:"schedule" jsonschema:"type=string,enum=none,enum=minutely,enum=hourly,enum=daily,enum=weekly,enum=monthly,title=Schedule,description=the schedule of SLA report"`
 	Time     string   `yaml:"time" json:"time,omitempty" jsonschema:"format=time,title=Time,description=the time of SLA report need to send out,example=23:59:59+08:00"`
 	//Debug    bool     `yaml:"debug" json:"debug,omitempty" jsonschema:"title=Debug,description=if true the SLA report will be printed to stdout,default=false"`
-	DataFile string   `yaml:"data" json:"data,omitempty" jsonschema:"title=Data File,description=the data file of SLA report, absolute path"`
+	DataFile string   `yaml:"data" json:"data,omitempty" jsonschema:"title=Data File,description=the data file of SLA report, absolute path. ('-' means no SLA persistent data)"`
 	Backups  int      `yaml:"backups" json:"backups,omitempty" jsonschema:"title=Backups,description=the number of backups of SLA report,default=5"`
 	Channels []string `yaml:"channels" json:"channels,omitempty" jsonschema:"title=Channels,description=the channels of SLA report"`
 }
@@ -123,7 +126,7 @@ type HTTPServer struct {
 type Settings struct {
 	Name       string     `yaml:"name" json:"name,omitempty" jsonschema:"title=EaseProbe Name,description=The name of the EaseProbe instance,default=EaseProbe"`
 	IconURL    string     `yaml:"icon" json:"icon,omitempty" jsonschema:"title=Icon URL,description=The URL of the icon of the EaseProbe instance"`
-	PIDFile    string     `yaml:"pid" json:"pid,omitempty" jsonschema:"title=PID File,description=The PID file of the EaseProbe instance ('-' means no PID file)"`
+	PIDFile    string     `yaml:"pid" json:"pid,omitempty" jsonschema:"title=PID File,description=The PID file of the EaseProbe instance ('' or '-' means no PID file)"`
 	Log        Log        `yaml:"log" json:"log,omitempty" jsonschema:"title=EaseProbe Log,description=The log settings of the EaseProbe instance"`
 	TimeFormat string     `yaml:"timeformat" json:"timeformat,omitempty" jsonschema:"title=Time Format,description=The time format of the EaseProbe instance,default=2006-01-02 15:04:05Z07:00"`
 	TimeZone   string     `yaml:"timezone" json:"timezone,omitempty" jsonschema:"title=Time Zone,description=The time zone of the EaseProbe instance,example=Asia/Shanghai,example=Europe/Berlin,default=UTC"`
@@ -143,6 +146,7 @@ type Conf struct {
 	SSH      ssh.SSH         `yaml:"ssh" json:"ssh,omitempty" jsonschema:"title=SSH Probe,description=SSH Probe Configuration"`
 	TLS      []tls.TLS       `yaml:"tls" json:"tls,omitempty" jsonschema:"title=TLS Probe,description=TLS Probe Configuration"`
 	Host     host.Host       `yaml:"host" json:"host,omitempty" jsonschema:"title=Host Probe,description=Host Probe Configuration"`
+	Ping     []ping.Ping     `yaml:"ping" json:"ping,omitempty" jsonschema:"title=Ping Probe,description=Ping Probe Configuration"`
 	Notify   notify.Config   `yaml:"notify" json:"notify,omitempty" jsonschema:"title=Notification,description=Notification Configuration"`
 	Settings Settings        `yaml:"settings" json:"settings,omitempty" jsonschema:"title=Global Settings,description=EaseProbe Global configuration"`
 }
@@ -194,7 +198,7 @@ func isExternalURL(url string) bool {
 	return true
 }
 
-func getYamlFileFromInternet(url string) ([]byte, error) {
+func getYamlFileFromHTTP(url string) ([]byte, error) {
 	r, err := httpClient.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -233,9 +237,53 @@ func getYamlFileFromFile(path string) ([]byte, error) {
 
 func getYamlFile(path string) ([]byte, error) {
 	if isExternalURL(path) {
-		return getYamlFileFromInternet(path)
+		return getYamlFileFromHTTP(path)
 	}
 	return getYamlFileFromFile(path)
+}
+
+// previousYAMLFile is the content of the configuration file
+var previousYAMLFile []byte
+
+// ResetPreviousYAMLFile resets the previousYAMLFile
+func ResetPreviousYAMLFile() {
+	previousYAMLFile = nil
+}
+
+// IsConfigModified checks if the configuration file is modified
+func IsConfigModified(path string) bool {
+
+	var content []byte
+	var err error
+	if isExternalURL(path) {
+		content, err = getYamlFileFromHTTP(path)
+	} else {
+		content, err = getYamlFileFromFile(path)
+	}
+
+	if err != nil {
+		log.Warnf("Failed to get the configuration file [%s]: %v", path, err)
+		return false
+	}
+
+	// if it is the fisrt time to read the configuration file, we will not restart the program
+	if previousYAMLFile == nil {
+		previousYAMLFile = content
+		return false
+	}
+
+	//  if the configuration file is invalid, we will not restart the program
+	testConf := Conf{}
+	err = yaml.Unmarshal(content, &testConf)
+	if err != nil {
+		log.Warnf("Invalid configuration file [%s]: %v", path, err)
+		return false
+	}
+
+	// check if the configuration file is modified
+	modified := !bytes.Equal(content, previousYAMLFile)
+	previousYAMLFile = content
+	return modified
 }
 
 // New read the configuration from yaml

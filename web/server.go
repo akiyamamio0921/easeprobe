@@ -19,8 +19,11 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"strconv"
@@ -39,6 +42,7 @@ import (
 )
 
 var probers *[]probe.Prober
+var webServer *http.Server
 
 func getRefreshInterval(refersh string) time.Duration {
 	interval := conf.Get().Settings.HTTPServer.AutoRefreshTime
@@ -79,15 +83,18 @@ func getNum[T any](str string, _default T, convert func(string) (T, error)) T {
 	}
 	return n
 }
+func getStr(str string) string {
+	return strings.TrimSpace(html.EscapeString(str))
+}
 
 func getFilter(req *http.Request) (*report.SLAFilter, error) {
 	filter := &report.SLAFilter{}
 
-	filter.Name = strings.TrimSpace(req.URL.Query().Get("name"))
-	filter.Kind = strings.TrimSpace(req.URL.Query().Get("kind"))
-	filter.Endpoint = strings.TrimSpace(req.URL.Query().Get("ep"))
+	filter.Name = getStr(req.URL.Query().Get("name"))
+	filter.Kind = getStr(req.URL.Query().Get("kind"))
+	filter.Endpoint = getStr(req.URL.Query().Get("ep"))
 	filter.Status = getStatus(req.URL.Query().Get("status"))
-	filter.Message = strings.TrimSpace(req.URL.Query().Get("msg"))
+	filter.Message = getStr(req.URL.Query().Get("msg"))
 	filter.SLAGreater = getNum(req.URL.Query().Get("gte"), 0, toFloat)
 	filter.SLALess = getNum(req.URL.Query().Get("lte"), 100, toFloat)
 	filter.PageNum = getNum(req.URL.Query().Get("pg"), 1, toInt)
@@ -196,9 +203,28 @@ func Server() {
 
 	// Start the http server
 	go func() {
-		if err := http.Serve(server, r); err != nil {
+		webServer = &http.Server{Handler: r}
+		if err := webServer.Serve(server); !errors.Is(err, http.ErrServerClosed) {
 			log.Errorf("[Web] HTTP server error: %s", err)
 		}
+		log.Info("[Web] HTTP server is stopped.")
 	}()
+
+}
+
+// Shutdown the http server
+func Shutdown() {
+	if webServer == nil {
+		log.Debugf("[Web] HTTP server is not running, skip to shutdown")
+		return
+	}
+	shutdownCtx, shutdownRelease := context.WithTimeout(context.Background(), global.DefaultTimeOut)
+	defer shutdownRelease()
+
+	if err := webServer.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("[Web] Failed to shutdown the http server: %s", err)
+	}
+	log.Info("[Web] HTTP server is shutdown")
+	webServer = nil
 
 }

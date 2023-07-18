@@ -62,6 +62,17 @@ http: # http probes
 #     failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
 #     success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
 
+# --------------------- Ping Probe Configuration ---------------------
+#
+# ping:
+#   - name: Localhost
+#     host: 127.0.0.1
+#     count: 5 # number of packets to send, default: 3
+#     lost: 0.2 # 20% lost percentage threshold, mark it down if the loss is greater than this, default: 0
+#     privileged: true # if true, the ping will be executed with icmp, otherwise use udp, default: false (Note: On Windows platform, this must be set to True)
+#     timeout: 10s # default is 30 seconds
+#     interval: 2m # default is 60 seconds
+
 # --------------------- Shell Probe Configuration ---------------------
 #
 # shell:
@@ -131,20 +142,22 @@ http: # http probes
 # --------------------- TLS Probe Configuration ---------------------
 #
 # tls:
-# - name: expired test
+#   - name: expired test
 #     host: expired.badssl.com:443
 #     proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
-#                                     # Also support the `ALL_PROXY` environment.
-#     insecure_skip_verify: true # dont check cert validity
-#     expire_skip_verify: true # dont check cert expire date
-#     alert_expire_before: 168h # alert if cert expire date is before X, the value is a Duration, see https://pkg.go.dev/time#ParseDuration. example: 1h, 1m, 1s. expire_skip_verify must be false to use this feature.
+#                                       # Also support the `ALL_PROXY` environment.
+#     insecure_skip_verify: true # don't check cert validity
+#     expire_skip_verify: true   # don't check cert expire date
+#     alert_expire_before: 168h  # alert if cert expire date is before X, the value is a Duration,
+#                                # see https://pkg.go.dev/time#ParseDuration. example: 1h, 1m, 1s.
+#                                # expire_skip_verify must be false to use this feature.
 #     # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
 #     # root_ca_pem: |
 #     #   -----BEGIN CERTIFICATE-----
-# - name: untrust test
+#   - name: untrust test
 #     host: untrusted-root.badssl.com:443
-#     # insecure_skip_verify: true # dont check cert validity
-#     # expire_skip_verify: true # dont check cert expire date
+#     # insecure_skip_verify: true # don't check cert validity
+#     # expire_skip_verify: true   # don't check cert expire date
 #     # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
 #     # root_ca_pem: |
 #     #   -----BEGIN CERTIFICATE-----
@@ -169,9 +182,13 @@ http: # http probes
 #         cpu: 0.80  # cpu usage  80%
 #         mem: 0.70  # memory usage 70%
 #         disk: 0.90  # disk usage 90%
+#         load: # load average - Note: the actual load would be divided by cpu core number, the threshold won't consider the cpu core number.
+#           m1: 0.5  # 1 minute load average 0.5 (default: 0.8)
+#           m5: 0.9  # 5 minute load average 0.9 (default: 0.8)
+#           m15: 0.9 # 15 minute load average 0.9 (default: 0.8)
 
 #     # Using the default threshold
-#     # cpu 80%, mem 80% and disk 95%
+#     # cpu 80%, mem 80%, disk 95% and 0.8 load average
 #     - name : My VPS
 #       host: user@example.com:22
 #       key: /Users/user/.ssh/id_rsa
@@ -390,7 +407,11 @@ notify:
 #     interval: 1m # probe every minute for all probes
 #     failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
 #     success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
-
+#     alert: # alert interval for all probes
+#       strategy: "regular" # it can be "regular", "increment" or "exponent", default: "regular"
+#       factor: 1 # the factor of the interval, default: 1
+#       max: 5 # the max of the alert, default: 1
+#
 #   # easeprobe program running log file.
 #   log:
 #     file: "/path/to/easeprobe.log" # default: stdout

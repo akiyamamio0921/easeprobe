@@ -52,6 +52,7 @@ type DefaultProbe struct {
 	ProbeTimeout                         time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty" jsonschema:"type=string,format=duration,title=Probe Timeout,description=the timeout of probe"`
 	ProbeTimeInterval                    time.Duration `yaml:"interval,omitempty" json:"interval,omitempty" jsonschema:"type=string,format=duration,title=Probe Interval,description=the interval of probe"`
 	global.StatusChangeThresholdSettings `yaml:",inline" json:",inline"`
+	global.NotificationStrategySettings  `yaml:"alert" json:"alert" jsonschema:"title=Probe Alert,description=the alert strategy of probe"`
 	ProbeFunc                            ProbeFuncType `yaml:"-" json:"-"`
 	ProbeResult                          *probe.Result `yaml:"-" json:"-"`
 	metrics                              *metrics      `yaml:"-" json:"-"`
@@ -100,7 +101,7 @@ func (d *DefaultProbe) CheckStatusThreshold() probe.Status {
 	s := d.StatusChangeThresholdSettings
 	c := d.ProbeResult.Stat.StatusCounter
 	title := d.LogTitle()
-	log.Debugf(" %s - Status Threshold Checking - Current[%v], StatusCnt[%d], FailureThread[%d], SuccessThread[%d]",
+	log.Debugf("%s - Status Threshold Checking - Current[%v], StatusCnt[%d], FailureThread[%d], SuccessThread[%d]",
 		title, c.CurrentStatus, c.StatusCount, s.Failure, s.Success)
 
 	if c.CurrentStatus == true && c.StatusCount >= s.Success {
@@ -139,10 +140,16 @@ func (d *DefaultProbe) Config(gConf global.ProbeSettings,
 	d.ProbeTimeout = gConf.NormalizeTimeOut(d.ProbeTimeout)
 	d.ProbeTimeInterval = gConf.NormalizeInterval(d.ProbeTimeInterval)
 	d.StatusChangeThresholdSettings = gConf.NormalizeThreshold(d.StatusChangeThresholdSettings)
+	d.NotificationStrategySettings = gConf.NormalizeNotificationStrategy(d.NotificationStrategySettings)
 
 	d.ProbeResult = probe.NewResultWithName(name)
 	d.ProbeResult.Name = name
 	d.ProbeResult.Endpoint = endpoint
+
+	// update the notification strategy settings
+	d.ProbeResult.Stat.NotificationStrategyData.Strategy = d.NotificationStrategySettings.Strategy
+	d.ProbeResult.Stat.NotificationStrategyData.Factor = d.NotificationStrategySettings.Factor
+	d.ProbeResult.Stat.NotificationStrategyData.MaxTimes = d.NotificationStrategySettings.MaxTimes
 
 	// Set the new length of the status counter
 	maxLen := d.StatusChangeThresholdSettings.Failure
@@ -186,6 +193,9 @@ func (d *DefaultProbe) Probe() probe.Result {
 	status := d.CheckStatusThreshold()
 	title := status.Title()
 
+	// process the notification strategy
+	d.ProbeResult.Stat.NotificationStrategyData.ProcessStatus(status == probe.StatusUp)
+
 	if len(d.ProbeTag) > 0 {
 		d.ProbeResult.Message = fmt.Sprintf("%s (%s/%s): %s", title, d.ProbeKind, d.ProbeTag, msg)
 	} else {
@@ -197,11 +207,11 @@ func (d *DefaultProbe) Probe() probe.Result {
 	d.ProbeResult.PreStatus = d.ProbeResult.Status
 	d.ProbeResult.Status = status
 
-	d.ExportMetrics()
-
 	d.DownTimeCalculation(status)
 
 	d.ProbeResult.DoStat(d.Interval())
+
+	d.ExportMetrics()
 
 	result := d.ProbeResult.Clone()
 	return result
@@ -209,14 +219,34 @@ func (d *DefaultProbe) Probe() probe.Result {
 
 // ExportMetrics export the metrics
 func (d *DefaultProbe) ExportMetrics() {
-	d.metrics.Total.With(prometheus.Labels{
-		"name":   d.ProbeName,
-		"status": d.ProbeResult.Status.String(),
-	}).Inc()
+	cnt := int64(0)
+	time := time.Duration(0)
+
+	if d.ProbeResult.Status == probe.StatusUp {
+		cnt = d.ProbeResult.Stat.Status[probe.StatusUp]
+		time = d.ProbeResult.Stat.UpTime
+	} else {
+		cnt = d.ProbeResult.Stat.Status[probe.StatusDown]
+		time = d.ProbeResult.Stat.DownTime
+	}
+
+	// Add endpoint label according to ProbeKind(tcp/http/ping/host/...)
+	d.metrics.TotalCnt.With(prometheus.Labels{
+		"name":     d.ProbeName,
+		"status":   d.ProbeResult.Status.String(),
+		"endpoint": d.ProbeResult.Endpoint,
+	}).Set(float64(cnt))
+
+	d.metrics.TotalTime.With(prometheus.Labels{
+		"name":     d.ProbeName,
+		"status":   d.ProbeResult.Status.String(),
+		"endpoint": d.ProbeResult.Endpoint,
+	}).Set(float64(time.Seconds()))
 
 	d.metrics.Duration.With(prometheus.Labels{
-		"name":   d.ProbeName,
-		"status": d.ProbeResult.Status.String(),
+		"name":     d.ProbeName,
+		"status":   d.ProbeResult.Status.String(),
+		"endpoint": d.ProbeResult.Endpoint,
 	}).Set(float64(d.ProbeResult.RoundTripTime.Milliseconds()))
 
 	status := ServiceUp // up
@@ -224,11 +254,13 @@ func (d *DefaultProbe) ExportMetrics() {
 		status = ServiceDown // down
 	}
 	d.metrics.Status.With(prometheus.Labels{
-		"name": d.ProbeName,
+		"name":     d.ProbeName,
+		"endpoint": d.ProbeResult.Endpoint,
 	}).Set(float64(status))
 
 	d.metrics.SLA.With(prometheus.Labels{
-		"name": d.ProbeName,
+		"name":     d.ProbeName,
+		"endpoint": d.ProbeResult.Endpoint,
 	}).Set(float64(d.ProbeResult.SLAPercent()))
 }
 

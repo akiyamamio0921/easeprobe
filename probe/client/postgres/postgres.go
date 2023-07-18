@@ -62,8 +62,9 @@ func New(opt conf.Options) (*PostgreSQL, error) {
 		return nil, fmt.Errorf("TLS Config Error - %v", err)
 	} else if tls != nil {
 		tls.InsecureSkipVerify = true
-		clientOptions = append(clientOptions, pgdriver.WithTLSConfig(tls))
 	}
+	// if the tls is nil which means `sslmode=disable`
+	clientOptions = append(clientOptions, pgdriver.WithTLSConfig(tls))
 
 	pg := &PostgreSQL{
 		Options:       opt,
@@ -97,62 +98,84 @@ func (r *PostgreSQL) checkData() error {
 func (r *PostgreSQL) Probe() (bool, string) {
 
 	if len(r.Data) > 0 {
-		for k, v := range r.Data {
-			log.Debugf("[%s / %s / %s] - Verifying Data - [%s] : [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, k, v)
-			//connect to the database
-			dbName, sqlstr, err := r.getSQL(k)
-			if err != nil {
-				return false, fmt.Sprintf("Invalid SQL data - [%s], %v", v, err)
-			}
-			clientOptions := append(r.ClientOptions, pgdriver.WithDatabase(dbName))
-			db := sql.OpenDB(pgdriver.NewConnector(clientOptions...))
-			if db == nil {
-				return false, "OpenDB error"
-			}
-			// query the data
-			log.Debugf("[%s / %s / %s] - SQL - [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, sqlstr)
-			rows, err := db.Query(sqlstr)
-			if err != nil {
-				return false, fmt.Sprintf("Query error - [%s], %v", v, err)
-			}
-			if !rows.Next() {
-				rows.Close()
-				return false, fmt.Sprintf("No data found for [%s]", k)
-			}
-			//check the value is equal to the value in data
-			var value string
-			if err := rows.Scan(&value); err != nil {
-				rows.Close()
-				return false, err.Error()
-			}
-			if value != v {
-				rows.Close()
-				return false, fmt.Sprintf("Value not match for [%s] expected [%s] got [%s] ", k, v, value)
-			}
-			rows.Close()
-			db.Close()
-			log.Debugf("[%s / %s / %s] - Data Verified Successfully! - [%s] : [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, k, v)
-		}
-	} else {
-		r.ClientOptions = append(r.ClientOptions, pgdriver.WithDatabase("template1"))
-		db := sql.OpenDB(pgdriver.NewConnector(r.ClientOptions...))
-		if db == nil {
-			return false, "OpenDB error"
-		}
-		defer db.Close()
+		return r.ProbeWithDataChecking()
+	}
+	return r.ProbeWithPing()
+}
 
-		if err := db.Ping(); err != nil {
-			return false, err.Error()
-		}
+// ProbeWithPing do the health check with ping & Select 1;
+func (r *PostgreSQL) ProbeWithPing() (bool, string) {
+	r.ClientOptions = append(r.ClientOptions, pgdriver.WithDatabase("template1"))
+	db := sql.OpenDB(pgdriver.NewConnector(r.ClientOptions...))
+	if db == nil {
+		return false, "OpenDB error"
+	}
+	defer db.Close()
 
-		// run a SQL to test
-		row, err := db.Query(`SELECT 1`)
-		if err != nil {
-			return false, err.Error()
-		}
-		row.Close()
+	if err := db.Ping(); err != nil {
+		return false, err.Error()
 	}
 
+	// run a SQL to test
+	row, err := db.Query(`SELECT 1`)
+	if err != nil {
+		return false, err.Error()
+	}
+	row.Close()
+	return true, "Check PostgreSQL Server Successfully!"
+}
+
+// ProbeWithDataChecking do the health check with data checking
+func (r *PostgreSQL) ProbeWithDataChecking() (bool, string) {
+	if len(r.Data) == 0 {
+		log.Warnf("[%s / %s / %s] - No data found, use ping instead", r.ProbeKind, r.ProbeName, r.ProbeTag)
+		return r.ProbeWithPing()
+	}
+
+	for k, v := range r.Data {
+		if ok, msg := r.verifyData(k, v); !ok {
+			return ok, msg
+		}
+	}
+
+	return true, "Check PostgreSQL Server Successfully!"
+}
+
+func (r *PostgreSQL) verifyData(k, v string) (bool, string) {
+	log.Debugf("[%s / %s / %s] - Verifying Data - [%s] : [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, k, v)
+	//connect to the database
+	dbName, sqlstr, err := r.getSQL(k)
+	if err != nil {
+		return false, fmt.Sprintf("Invalid SQL data - [%s], %v", v, err)
+	}
+	clientOptions := append(r.ClientOptions, pgdriver.WithDatabase(dbName))
+	db := sql.OpenDB(pgdriver.NewConnector(clientOptions...))
+	if db == nil {
+		return false, "OpenDB error"
+	}
+	defer db.Close()
+
+	// query the data
+	log.Debugf("[%s / %s / %s] - SQL - [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, sqlstr)
+	rows, err := db.Query(sqlstr)
+	if err != nil {
+		return false, fmt.Sprintf("Query error - [%s], %v", v, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return false, fmt.Sprintf("No data found for [%s]", k)
+	}
+	//check the value is equal to the value in data
+	var value string
+	if err := rows.Scan(&value); err != nil {
+		return false, err.Error()
+	}
+	if value != v {
+		return false, fmt.Sprintf("Value not match for [%s] expected [%s] got [%s] ", k, v, value)
+	}
+
+	log.Debugf("[%s / %s / %s] - Data Verified Successfully! - [%s] : [%s]", r.ProbeKind, r.ProbeName, r.ProbeTag, k, v)
 	return true, "Check PostgreSQL Server Successfully!"
 }
 
@@ -167,16 +190,16 @@ func (r *PostgreSQL) getSQL(str string) (string, string, error) {
 	if len(fields) != 5 {
 		return "", "", fmt.Errorf("Invalid SQL data - [%s]. (syntax: database:table:field:key:value)", str)
 	}
-	db := fields[0]
-	table := fields[1]
-	field := fields[2]
-	key := fields[3]
-	value := fields[4]
+	db := global.EscapeQuote(fields[0])
+	table := global.EscapeQuote(fields[1])
+	field := global.EscapeQuote(fields[2])
+	key := global.EscapeQuote(fields[3])
+	value := global.EscapeQuote(fields[4])
 	//check value is int or not
 	if _, err := strconv.Atoi(value); err != nil {
 		return "", "", fmt.Errorf("Invalid SQL data - [%s], the value must be int", str)
 	}
 
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s", field, table, key, value)
+	sql := fmt.Sprintf(`SELECT "%s" FROM "%s" WHERE "%s" = %s`, field, table, key, value)
 	return db, sql, nil
 }

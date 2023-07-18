@@ -4,11 +4,43 @@ EaseProbe is a simple, standalone, and lightweight tool that can do health/statu
 
 ![](./overview.png)
 
-<h1>Outline</h1>
+EaseProbe has the following major modules:
+
+- **Probe**: It is used to check the health of the service.
+- **Notification**: It is used to send the Probe notification.
+- **Channel**: It is used to connect the probe and the notification.
+- **Report**: It is used to generate the SLA report for all probe.
+- **Metrics**: It is used to export the metrics data to Prometheus.
+
+
+<h2>Table of Contents</h2>
 
 - [1. Probe](#1-probe)
   - [1.1 Overview](#11-overview)
-  - [1.2 Initial Fire Up](#12-initial-fire-up)
+    - [1.1.1 General Settings](#111-general-settings)
+    - [1.1.2 Alerting Interval](#112-alerting-interval)
+      - [1.1.2.1 Regular Strategy](#1121-regular-strategy)
+      - [1.1.2.2 Incremental Strategy](#1122-incremental-strategy)
+      - [1.1.2.3 Exponential Strategy](#1123-exponential-strategy)
+    - [1.1.3 Initial Fire Up](#113-initial-fire-up)
+  - [1.2 HTTP](#12-http)
+    - [1.2.1 Basic Configuration](#121-basic-configuration)
+    - [1.2.2 Complete Configuration](#122-complete-configuration)
+    - [1.2.3 Expression Evaluation](#123-expression-evaluation)
+  - [1.3 TCP](#13-tcp)
+  - [1.4 Ping](#14-ping)
+  - [1.5 Shell](#15-shell)
+  - [1.6 SSH](#16-ssh)
+  - [1.7 TLS](#17-tls)
+  - [1.8 Host](#18-host)
+  - [1.9 Native Client](#19-native-client)
+    - [1.9.1 Redis](#191-redis)
+    - [1.9.2 MySQL](#192-mysql)
+    - [1.9.3 MongoDB](#193-mongodb)
+    - [1.9.4 Memcache](#194-memcache)
+    - [1.9.5 Kafka](#195-kafka)
+    - [1.9.6 PostgreSQL](#196-postgresql)
+    - [1.9.7 Zookeeper](#197-zookeeper)
 - [2. Notification](#2-notification)
   - [2.1 Slack](#21-slack)
   - [2.2 Discord](#22-discord)
@@ -34,38 +66,654 @@ EaseProbe is a simple, standalone, and lightweight tool that can do health/statu
   - [5.1 PID file](#51-pid-file)
   - [5.2 Log file Rotation](#52-log-file-rotation)
 - [6. Prometheus Metrics Exporter](#6-prometheus-metrics-exporter)
+  - [6.1 General Metrics](#61-general-metrics)
+  - [6.2 HTTP Probe](#62-http-probe)
+  - [6.3 Ping Probe](#63-ping-probe)
+  - [6.4 TLS Probe](#64-tls-probe)
+  - [6.5 Shell \& SSH Probe](#65-shell--ssh-probe)
+  - [6.6 Host Probe](#66-host-probe)
 - [7. Configuration](#7-configuration)
-  - [7.1 HTTP Probe Configuration](#71-http-probe-configuration)
-    - [7.1.1 Basic HTTP Configuration](#711-basic-http-configuration)
-    - [7.1.2 Complete HTTP Configuration](#712-complete-http-configuration)
-    - [7.1.3 Expression Evaluation](#713-expression-evaluation)
-  - [7.2 TCP Probe Configuration](#72-tcp-probe-configuration)
-  - [7.3 Shell Command Probe Configuration](#73-shell-command-probe-configuration)
-  - [7.4 SSH Command Probe Configuration](#74-ssh-command-probe-configuration)
-  - [7.5 TLS Probe Configuration](#75-tls-probe-configuration)
-  - [7.6 Host Resource Usage Probe Configuration](#76-host-resource-usage-probe-configuration)
-  - [7.7 Native Client Probe Configuration](#77-native-client-probe-configuration)
-  - [7.8 Notification Configuration](#78-notification-configuration)
-  - [7.9 Global Setting Configuration](#79-global-setting-configuration)
+  - [7.1 Probe Configuration](#71-probe-configuration)
+  - [7.2 Notification Configuration](#72-notification-configuration)
+  - [7.3 Global Setting Configuration](#73-global-setting-configuration)
 - [8. Tools](#8-tools)
   - [8.1 EaseProbe JSON Schema](#81-easeprobe-json-schema)
+  - [8.2 EaseProbe Deployment](#82-easeprobe-deployment)
+
 
 
 
 # 1. Probe
 
+EaseProbe supports these probing methods: **HTTP**, **TCP**, **TLS**, **Shell Command**, **SSH Command**, **Host Resource Usage**, and **Native Client**.
+
 ## 1.1 Overview
 
-EaseProbe supports the following probing methods: **HTTP**, **TCP**, **TLS**, **Shell Command**, **SSH Command**, **Host Resource Usage**, and **Native Client**.
+Each probe is identified by the method it supports (eg `http`), a unique name (across all probes in the configuration file) and the method specific parameters. For example:
 
-Each probe is identified by the method it supports (eg `http`), a unique name (across all probes in the configuration file) and the method specific parameters.
-- **HTTP**. Checking the HTTP status code, Support mTLS, HTTP Basic Auth, and can set the Request Header/Body. ( [HTTP Probe Configuration](#71-http-probe-configuration) )
-- **TCP**. Just simply check whether the TCP connection can be established or not. ( [TCP Probe Configuration](#72-tcp-probe-configuration) )
-- **Shell**. Run a Shell command and check the result. ( [Shell Command Probe Configuration](#73-shell-command-probe-configuration) )
-- **SSH**. Run a remote command via SSH and check the result. Support the bastion/jump server  ([SSH Command Probe Configuration](#74-ssh-command-probe-configuration))
-- **TLS**. Ping the remote endpoint, can probe for revoked or expired certificates ( [TLS Probe Configuration](#75-tls-probe-configuration) )
-- **Host**. Run an SSH command on a remote host and check the CPU, Memory, and Disk usage. ( [Host Load Probe](#76-host-resource-usage-probe-configuration) )
-- **Client**. Currently, support the following native client. Support the mTLS. ( refer to: [Native Client Probe Configuration](#77-native-client-probe-configuration) )
+```yaml
+http:
+  - name: Web Service
+    url: http://example.com:1080
+```
+> **Note**:
+>
+> **Probe name must be unique.** if multiple probes using the same name then this could lead to corruption of the metrics data and/or the behavior of the application in non-deterministic way.
+
+### 1.1.1 General Settings
+
+All probes support the `timeout`, `interval`, `failure`, and `success` optional configuration parameters. For example:
+
+```yaml
+tcp:
+  - name: Web Service
+    host: example.com:1080
+    timeout: 10s # the time out for all probes, default is 30 seconds
+    interval: 2m # probe every minute for all probes, default is 60 seconds
+    failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
+    success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
+```
+
+We can configure the general probe settings for all probes.
+
+The following configuration is effective for all probe, unless the probe has its own configuration.
+
+```yaml
+settings:
+  probe:
+    timeout: 30s # the time out for all probes, default is 30 seconds
+    interval: 1m # probe every minute for all probes, default is 60 seconds
+    failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
+    success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
+```
+
+### 1.1.2 Alerting Interval
+
+All of the Probe supports alerting interval configuration.
+
+The alerting interval is the time EaseProbe keep sending service down alerting notification until the probe is back to normal.
+
+The alerting interval is configured by three parameters: `strategy`, `factor` and `max`.
+
+- `strategy` is the alerting strategy, it can be `regular`， `increment` and `exponent`. the default strategy is `regular`.
+- `factor` is the alerting interval factor, it can be any positive integer. the default factor is 1.
+- `max` is the maximum alerting times, it can be any positive integer. the default max is 1.
+
+The following is an example of the alerting interval for HTTP Probe:
+```yaml
+  http:
+    - name: Web Service
+      url: http://example.com:1080
+      alert:
+        strategy: regular
+        factor: 1
+        max: 3
+```
+
+> **Note**:
+>
+> 1. The default strategy is regular and the max time is 1, this would be the same as the old behavior - edge trigger.
+> 2. The alerting interval is aligned with the probe interval, it is triggered by the probe failure.
+> 3. The alerting interval configuration can be configured in the global settings `settings.probe`, and the probe's own configuration will override the global settings.
+
+#### 1.1.2.1 Regular Strategy
+
+Notifications are sent at the same frequency as the probe time, continuing until the maximum number of notifications is reached.
+
+The formula is:
+
+`interval = factor`
+
+For example:
+
+```yaml
+alert:
+  strategy: regular
+  factor: 1
+  max: 10
+```
+
+- If the factor = 1, the interval is always 1.<br>
+  So, the alert would be sent at failure of 1, 2，3，4，5，6，7...
+
+
+- If the factor = 2, the interval is always 2.<br>
+  So, the alert would be sent at failure of 1, 3, 5, 7, 9, 11, 13...
+
+- If the factor = 3, the interval is always 3.<br>
+  So, the alert would be sent at failure of 1, 4, 7, 10, 13, 16, 19...
+
+#### 1.1.2.2 Incremental Strategy
+
+Notifications are sent at increasing intervals until the maximum number of notifications is reached. With this strategy, the interval is increased linearly.
+
+The formula is:
+
+`interval = factor * (failure - 1) + 1`
+
+For example:
+
+```yaml
+alert:
+  strategy: increment
+  factor: 1
+  max: 10
+```
+
+- If the factor = 1, the interval is 1, 2, 3, 4, 5, 6, 7, 8, 9, 10.<br>
+  So, the alert would be sent at failure of 1, 2, 4, 7, 11, 16, 22, 29, 37...
+
+- If the factor = 2, the interval is 2, 4, 6, 8, 10, 12, 14, 16, 18, 20.<br>
+  So, the alert would be sent at failure of 1, 3, 7, 13, 21, 31, 43, 57, 73...
+
+- If the factor = 3, the interval is 3, 6, 9, 12, 15, 18, 21, 24, 27, 30.<br>
+  So, the alert would be sent at failure of 1, 4, 10, 19, 31, 46, 64, 85, 109...
+
+
+#### 1.1.2.3 Exponential Strategy
+
+Notifications are sent at exponentially increasing intervals until the maximum number of notifications is reached. With this strategy, the interval is increased exponentially.
+
+The formula is:
+
+`interval =  failure times + factor * ( failure times - 1 )`
+
+For example:
+
+```yaml
+alert:
+  strategy: exponent
+  factor: 1
+  max: 10
+```
+
+- If the factor = 1, the interval is 1, 2, 4, 8, 16, 32, 64, 128...<br>
+  So, the alert would be sent at failure of 1, 2, 4, 8, 16, 32, 64, 128, 256...
+
+- If the factor = 2, the interval is 2, 6, 18, 54, 162, 486, 1458...<br>
+  So, the alert would be sent at failure of 1, 3, 9, 27, 81, 243, 729, 2187...
+
+- If the factor = 3, the interval is 3, 12, 48, 192, 768...<br>
+  So, the alert would be sent at failure of 1, 4, 16, 64, 256, 1024...
+
+
+
+### 1.1.3 Initial Fire Up
+
+On application startup, the configured probes are scheduled for their initial fire up based on the following criteria:
+
+-  Less than or equal to 60 total probers exist: the delay between initial prober fire-up is `1 second`
+-  More than 60 total probers exist: the startup is scheduled based on the following equation `timeGap = DefaultProbeInterval / numProbes`
+
+
+## 1.2 HTTP
+
+HTTP probe using `http` identifier, it has the following features:
+
+- Checking the HTTP status code range
+- Support the response body check - JSON/XML/HTML Path checking
+- Support mTLS and HTTP Basic Auth
+- Can set the customized Request Header/Body.
+- Support the HTTP Proxy
+
+Setting the environment variables `$HTTP_PROXY` & `$HTTPS_PROXY` allows for configuring the proxy settings for all HTTP related probe (or you can set the `proxy` field in the probe configuration for specific probe).
+
+```shell
+export HTTPS_PROXY=socks5://127.0.0.1:1080
+```
+
+### 1.2.1 Basic Configuration
+
+the following example configuration is a basic HTTP probe configuration, which only have `name` and `url`, the `name` is the probe name, and the `url` is the HTTP URL to be checked. If the HTTP status code is in `[0, 499]`, then the probe is considered as `UP`.
+
+```YAML
+# HTTP Probe Configuration
+
+http:
+  # A Website
+  - name: MegaEase Website (Global)
+    url: https://megaease.com
+
+  # Some of the Software support the HTTP Query
+  - name: ElasticSearch
+    url: http://elasticsearch.server:9200
+  - name: Eureka
+    url: http://eureka.server:8761
+  - name: Prometheus
+    url: http://prometheus:9090/graph
+
+  # Spring Boot Application with Actuator Heath API
+  - name: EaseService-Governance
+    url: http://easeservice-mgmt-governance:38012/actuator/health
+  - name: EaseService-Control
+    url: http://easeservice-mgmt-control:38013/actuator/health
+  - name: EaseService-Mesh
+    url: http://easeservice-mgmt-mesh:38013/actuator/health
+```
+
+### 1.2.2 Complete Configuration
+
+The following example configuration is a complete HTTP probe configuration, which has all the supported configuration parameters.
+
+```yaml
+http:
+  # A completed HTTP Probe configuration
+  - name: Special Website
+    url: https://megaease.cn
+    # Proxy setting, support sock5, http, https, for example:
+    #   proxy: http://proxy.server:8080
+    #   proxy: socks5://localhost:1085
+    #   proxy: https://user:password@proxy.example.com:443
+    # Also support `HTTP_PROXY` & `HTTPS_PROXY` environment variables
+    proxy: http://proxy.server:8080
+    # Request Method
+    method: GET
+    # Request Header
+    headers:
+      User-Agent: Customized User-Agent # default: "MegaEase EaseProbe / v1.6.0"
+      X-head-one: xxxxxx
+      X-head-two: yyyyyy
+      X-head-THREE: zzzzzzX-
+    content_encoding: text/json
+    # Request Body
+    body: '{ "FirstName": "Mega", "LastName" : "Ease", "UserName" : "megaease", "Email" : "user@example.com"}'
+    # HTTP Basic Auth
+    username: username
+    password: password
+    # mTLS
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
+    # TLS
+    insecure: true # skip any security checks, useful for self-signed and expired certs. default: false
+    # HTTP successful response code range, default is [0, 499].
+    success_code:
+      - [200,206] # the code >=200 and <= 206
+      - [300,308] # the code >=300 and <= 308
+    # Response Checking
+    contain: "success" # response body must contain this string, if not the probe is considered failed.
+    not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
+    eval: # eval is a expression evaluation for HTTP response message
+      doc: XML # support  XML, JSON, HTML, TEXT.
+      expression: "x_time('//feed/updated') > '2022-07-01'" # the expression to evaluate.
+    # configuration
+    timeout: 10s # default is 30 seconds
+```
+
+> **Note**:
+>
+> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
+> The XPath only supported 1.0/2.0) syntax. refer to https://www.w3.org/TR/xpath/, and the library is https://github.com/antchfx/xpath
+
+### 1.2.3 Expression Evaluation
+
+HTTP Probe supports two type of expression evaluation.
+
+- `XML`, `JSON`, `HTML `: using the **XPath(1.0/2.0)** to extract the value
+- `TEXT` : using the **Regression Expression** to extract the value
+
+And the configuration can be two types as below:
+
+**1) Variable Definition**
+
+```yaml
+  eval:
+    doc: XML # support  XML, JSON, HTML, TEXT
+    expression: "updated > '2022-07-01'"
+    variables: # variables definition
+        - name: updated # variable name
+            type: time # variable type, support `int`, `float`, `bool`, `time` and `duration`.
+            query: "//feed/updated" # the XPath query to get the variable value.
+```
+
+**2) Build-in XPath function Expression Evaluation**
+
+you can just use the XPath build-in function in expression so simplify the configuration.
+
+```yaml
+  eval:
+    doc: XML # support  XML, JSON, HTML, TEXT.
+    expression: "x_time('//feed/updated') > '2022-07-01'" # the expression to evaluate.
+```
+
+Currently, EaseProbe supports the following XPath functions:
+- `x_str` - get the string value from the XPath/RegExp query result.
+- `x_int` - get the integer value from the XPath/RegExp query result.
+- `x_float` - get the float value from the XPath/RegExp query result.
+- `x_time` - get the time value from the XPath/RegExp query result.
+- `x_duration` - get the duration value from the XPath/RegExp query result.
+
+**3) Build-in Functions**
+
+Currently, EaseProbe supports the following build-in functions:
+
+- `strlen` - get the string length.
+- `now` - get the current time.
+- `duration` - get the duration value.
+
+
+For examples:
+
+check the `time` from response is 5 seconds later than the current time.
+
+```yaml
+eval:
+   doc: HTML
+   expression: "now() - x_time('//div[@id=\\'time\\']') > 5"
+```
+
+
+Check the duration from response is less than 1 second.
+
+```yaml
+eval:
+    doc: HTML
+    expression: "duration(rt) < duration('1s')"
+    variables:
+        - name: rt # variable name `rt` will be used in expression.
+            type: duration # variable type is `duration`
+            query: "//div[@id=\\'time\\']" # the XPath query the value.
+```
+Or
+
+```yaml
+eval:
+    doc: HTML
+    expression: "x_duration('//div[@id=\\'resp_time\\']') < duration('1s')"
+```
+
+
+**4) XPath Syntax Example**
+
+Considering we have the following response:
+
+```json
+{
+    "company": {
+        "name": "MegaEase",
+        "person": [{
+                "name": "Bob",
+                "email": "bob@example.com",
+                "age": 35,
+                "salary": 35000.12,
+                "birth": "1984-10-12",
+                "work": "40h",
+                "fulltime": true
+            },
+            {
+                "name": "Alice",
+                "email": "alice@example.com",
+                "age": 25,
+                "salary": 25000.12,
+                "birth": "1985-10-12",
+                "work": "30h",
+                "fulltime": false
+            }
+        ]
+    }
+}
+```
+Then, the extraction syntax as below:
+
+```
+"//name"                                        ==>  "MegaEase"
+"//company/name"                                ==>  "MegaEase"
+"//email"                                       ==>  "bob@example.com"
+"//company/person/*[1]/name"                    ==>  "Bob"
+"//company/person/*[2]/emai                     ==>  "alice@example.com"
+"//company/person/*[last()]/name"               ==>  "Alice"
+"//company/person/*[last()]/age"                ==>  "25"
+"//company/person/*[salary=25000.12]/salary"    ==>  "25000.12"
+"//company/person/*[name='Bob']/birth"          ==>  "1984-10-12"
+"//company/person/*[name='Alice']/work"         ==>  "30h"
+"//*/email[contains(.,'bob')]"                  ==>  "bob@example.com"
+"//work",                                       ==>  "40h"
+"//person/*[2]/fulltime"                        ==>  "false"
+```
+
+**5) Regression Expression Syntax Examples**
+
+Considering we have the following response:
+
+`name: Bob, email: bob@example.com, age: 35, salary: 35000.12, birth: 1984-10-12, work: 40h, fulltime: true`
+
+Then, the extraction syntax as below:
+
+```
+"name: (?P<name>[a-zA-Z0-9 ]*)"           ==>  "Bob"
+"email: (?P<email>[a-zA-Z0-9@.]*)"        ==>  "bob@example.com"
+"age: (?P<age>[0-9]*)"                    ==>  "35"
+"age: (?P<age>\\d+)"                      ==>  "35"
+"salary: (?P<salary>[0-9.]*)"             ==>  "35000.12"
+"salary: (?P<salary>\\d+\\.\\d+)"         ==>  "35000.12"
+"birth: (?P<birth>[0-9-]*)"               ==>  "1984-10-12"
+"birth: (?P<birth>\\d{4}-\\d{2}-\\d{2})"  ==>  "1984-10-12"
+"work: (?P<work>\\d+[hms])"               ==>  "40h"
+"fulltime: (?P<fulltime>true|false)"      ==>  "true"
+```
+> Notes
+>
+> Checking the unit test case in [`eval`](../eval/) package you can find more examples.
+
+## 1.3 TCP
+
+TCP probe just simply check whether the TCP connection can be established or not.
+
+The following is the configuration example, which has two TCP probes:
+- **SSH Service**, it will check the TCP connection to `example.com:22` every 2 minutes with 10 second timeout via the proxy  `socks5://proxy.server:1080`.
+- **Kafka**, which will check the TCP connection to `kafka.server:9093` by using the default interval and timeout settings.
+
+```YAML
+# TCP Probe Configuration
+tcp:
+  - name: SSH Service
+    host: example.com:22
+    timeout: 10s # default is 30 seconds
+    interval: 2m # default is 60 seconds
+    proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
+                                      # Also support the `ALL_PROXY` environment.
+  - name: Kafka
+    host: kafka.server:9093
+```
+
+## 1.4 Ping
+
+Ping probe uses `ping` identifier, it just simply check whether can be pinged or not.
+
+The following is the configuration example.
+
+```YAML
+ping:
+  - name: Localhost
+    host: 127.0.0.1
+    count: 5 # number of packets to send, default: 3
+    lost: 0.2 # 20% lost percentage threshold, mark it down if the loss is greater than this, default: 0
+    privileged: true # if true, the ping will be executed with icmp, otherwise use udp, default: false (Note: On Windows platform, this must be set to True)
+    timeout: 10s # default is 30 seconds
+    interval: 2m # default is 60 seconds
+```
+
+## 1.5 Shell
+
+The shell command probe uses `shell` identifier, it is used to execute a shell command and check the output.
+
+The following example shows how to configure the shell command probe.
+
+```YAML
+# Shell Probe Configuration
+shell:
+  # A proxy curl shell script
+  - name: Google Service
+    cmd: "./resources/probe/scripts/proxy.curl.sh"
+    args:
+      - "socks5://127.0.0.1:1085"
+      - "www.google.com"
+
+  # run redis-cli ping and check the "PONG"
+  - name: Redis (Local)
+    cmd: "redis-cli"
+    args:
+      - "-h"
+      - "127.0.0.1"
+      - "ping"
+    clean_env: true # Do not pass the OS environment variables to the command
+                    # default: false
+    env:
+      # set the `REDISCLI_AUTH` environment variable for redis password
+      - "REDISCLI_AUTH=abc123"
+    # check the command output, if does not contain the PONG, mark the status down
+    contain : "PONG"
+    not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    regex: false # if true, the `contain` and `not_contain` will be treated as regular expression. default: false
+
+  # Run Zookeeper command `stat` to check the zookeeper status
+  - name: Zookeeper (Local)
+    cmd: "/bin/sh"
+    args:
+      - "-c"
+      - "echo stat | nc 127.0.0.1 2181"
+    contain: "Mode:"
+```
+
+> **Note**:
+>
+> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
+
+## 1.6 SSH
+
+SSH probe uses `ssh` identifier, it is similar to Shell probe.
+- Support Password and Private key authentication.
+- Support the Bastion host tunnel.
+
+The `host` supports the following configuration
+- `example.com`
+- `example.com:22`
+- `user@example.com:22`
+
+The following are examples of SSH probe configuration.
+
+```YAML
+# SSH Probe Configuration
+ssh:
+  # SSH bastion host configuration
+  bastion:
+    aws: # bastion host ID      ◄──────────────────────────────┐
+      host: aws.basition.com:22 #                              │
+      username: ubuntu # login user                            │
+      key: /path/to/aws/basion/key.pem # private key file      │
+    gcp: # bastion host ID                                     │
+      host: ubuntu@gcp.basition.com:22 # bastion host          │
+      key: /path/to/gcp/basion/key.pem # private key file      │
+  # SSH Probe configuration                                    │
+  servers:   #                                                 │
+    # run redis-cli ping and check the "PONG"                  │
+    - name: Redis (AWS) # Name                                 │
+      bastion: aws  # bastion host id ------------------------─┘
+      host: 172.20.2.202:22
+      username: ubuntu  # SSH Login username
+      password: xxxxx   # SSH Login password
+      key: /path/to/private.key # SSH login private file
+      passphrase: xxxxxxx  # PrivateKey password
+      cmd: "redis-cli"
+      args:
+        - "-h"
+        - "127.0.0.1"
+        - "ping"
+      env:
+        # set the `REDISCLI_AUTH` environment variable for redis password
+        - "REDISCLI_AUTH=abc123"
+      # check the command output, if does not contain the PONG, mark the status down
+      contain : "PONG"
+      not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+      regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
+
+    # Check the process status of `Kafka`
+    - name:  Kafka (GCP)
+      bastion: gcp         #  ◄------ bastion host id
+      host: 172.10.1.100:22
+      username: ubuntu
+      key: /path/to/private.key
+      cmd: "ps -ef | grep kafka"
+```
+> **Note**:
+>
+> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
+
+## 1.7 TLS
+
+TLS probe uses `tls` identifier, it pings to remote endpoint, can probe for revoked or expired certificates
+
+```YAML
+tls:
+  - name: expired test
+    host: expired.badssl.com:443
+    proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
+                                      # Also support the `ALL_PROXY` environment.
+    insecure_skip_verify: true # don't check cert validity
+    expire_skip_verify: true   # don't check cert expire date
+    alert_expire_before: 168h  # alert if cert expire date is before X, the value is a Duration,
+                               # see https://pkg.go.dev/time#ParseDuration. example: 1h, 1m, 1s.
+                               # expire_skip_verify must be false to use this feature.
+    # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
+    # root_ca_pem: |
+    #   -----BEGIN CERTIFICATE-----
+  - name: untrust test
+    host: untrusted-root.badssl.com:443
+    # insecure_skip_verify: true # don't check cert validity
+    # expire_skip_verify: true   # don't check cert expire date
+    # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
+    # root_ca_pem: |
+    #   -----BEGIN CERTIFICATE-----
+```
+
+## 1.8 Host
+
+The host probe uses `host` identifier, it allows for collecting information and alerting when certain resource utilization thresholds are exceeded.
+
+The resources currently monitored include CPU, memory and disk utilization. The probe status is considered as `down` when any value exceeds its defined threshold.
+
+> **Note**:
+> - The remote system to be monitored needs to have the following commands installed and available: `top`, `df`, `free`, `awk`, `grep`, `tr`, `cat` and `hostname`.
+> - The disk usage check is limited to the root filesystem only with the following command `df -h /`.
+> - The actual load would be divided by cpu core number, the threshold won't consider the cpu core number (requires proc filesystem support).
+
+```yaml
+host:
+  bastion: # bastion server configuration
+    aws: # bastion host ID      ◄──────────────────┐
+      host: ubuntu@example.com # bastion host      │
+      key: /path/to/bastion.pem # private key file │
+  # Servers List                                   │
+  servers: #                                       │
+    - name : aws server   #                        │
+      bastion: aws #  <-- bastion server id ------─┘
+      host: ubuntu@172.20.2.202:22
+      key: /path/to/server.pem
+      disks: # [optional] Check multiple disks. if not present, only check `/` by default
+        - /
+        - /data
+      threshold:
+        cpu: 0.80  # cpu usage  80%
+        mem: 0.70  # memory usage 70%
+        disk: 0.90  # disk usage 90%
+        load: # load average - Note: the actual load would be divided by cpu core number, the threshold won't consider the cpu core number.
+          m1: 0.5  # 1 minute load average 0.5 (default: 0.8)
+          m5: 0.9  # 5 minute load average 0.9 (default: 0.8)
+          m15: 0.9 # 15 minute load average 0.9 (default: 0.8)
+
+    # Using the default threshold
+    # cpu 80%, mem 80%, disk 95% and 0.8 load average
+    - name : My VPS
+      host: user@example.com:22
+      key: /Users/user/.ssh/id_rsa
+```
+
+## 1.9 Native Client
+
+Native Client probe uses `client` identifier, it uses the native GO SDK to communicate with the remote endpoints. Additionally to simple connectivity checks, you can also define key and data validity checks for EaseProbe, it will query for the given keys and verify the data stored on each service.
+
+Currently, support the following native client
   - **MySQL**. Connect to the MySQL server and run the `SHOW STATUS` SQL.
   - **Redis**. Connect to the Redis server and run the `PING` command.
   - **Memcache**. Connect to a Memcache server and run the `version` command or check based on key/value checks.
@@ -74,21 +722,130 @@ Each probe is identified by the method it supports (eg `http`), a unique name (a
   - **PostgreSQL**. Connect to PostgreSQL server and run `SELECT 1` SQL.
   - **Zookeeper**. Connect to Zookeeper server and run `get /` command.
 
-  Most of the clients support the additional validity check of data pulled from the service (such as checking a redis or memcache key for specific values). Check the documentation of the corresponding client for details on how to enable.
+The following is an example for all native client probe configuration:
 
-## 1.2 Initial Fire Up
+### 1.9.1 Redis
 
-On application startup, the configured probes are scheduled for their initial fire up based on the following criteria:
+```YAML
+# Native Client Probe
+client:
+  - name: Redis Native Client (local)
+    driver: "redis"  # driver is redis
+    host: "localhost:6379"  # server and port
+    password: "abc123" # password
+    data:         # Optional
+      key: val    # Check that `key` exists and its value is `val`
+    # mTLS - Optional
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
 
--  Less than or equal to 60 total probers exist: the delay between initial prober fire-up is `1 second`
--  More than 60 total probers exist: the startup is scheduled based on the following equation `timeGap = DefaultProbeInterval / numProbes`
+```
 
-> **Note**:
->
-> **If multiple probes using the same name then this could lead to corruption of the metrics data and/or the behavior of the application in non-deterministic way.**
+### 1.9.2 MySQL
+
+```YAML
+client:
+  - name: MySQL Native Client (local)
+    driver: "mysql"
+    host: "localhost:3306"
+    username: "root"
+    password: "pass"
+    data: # Optional, check the specific column value in the table
+      #  Usage: "database:table:column:primary_key:value" : "expected_value"
+      #         transfer to : "SELECT column FROM database.table WHERE primary_key = value"
+      #         the `value` for `primary_key` must be int
+      "test:product:name:id:1" : "EaseProbe" # select name from test.product where id = 1
+      "test:employee:age:id:2" : 45          # select age from test.employee where id = 2
+    # mTLS - Optional
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
+```
+
+### 1.9.3 MongoDB
+
+```YAML
+client:
+  - name: MongoDB Native Client (local)
+    driver: "mongo"
+    host: "localhost:27017"
+    username: "admin"
+    password: "abc123"
+    timeout: 5s
+    data: # Optional, find the specific value in the table
+      #  Usage: "database:collection" : "{JSON}"
+      "test:employee" : '{"name":"Hao Chen"}' # find the employee with name "Hao Chen"
+      "test:product" : '{"name":"EaseProbe"}' # find the product with name "EaseProbe"
+```
+
+### 1.9.4 Memcache
+
+```YAML
+client:
+  - name: Memcache Native Client (local)
+    driver: "memcache"
+    host: "localhost:11211"
+    timeout: 5s
+    data:         # Optional
+      key: val    # Check that key exists and its value is val
+      "namespace:key": val # Namespaced keys enclosed in "
+```
+
+### 1.9.5 Kafka
+
+```YAML
+client:
+  - name: Kafka Native Client (local)
+    driver: "kafka"
+    host: "localhost:9093"
+    # mTLS - Optional
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
+```
+
+### 1.9.6 PostgreSQL
+
+```YAML
+client:
+  - name: PostgreSQL Native Client (local)
+    driver: "postgres"
+    host: "localhost:5432"
+    username: "postgres"
+    password: "pass"
+    data: # Optional, check the specific column value in the table
+      #  Usage: "database:table:column:primary_key:value" : "expected_value"
+      #         transfer to : "SELECT column FROM table WHERE primary_key = value"
+      #         the `value` for `primary_key` must be int
+      "test:product:name:id:1" : "EaseProbe" # select name from product where id = 1
+      "test:employee:age:id:2" : 45          # select age from employee where id = 2
+    # mTLS - Optional
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
+```
+
+### 1.9.7 Zookeeper
+
+```YAML
+client:
+  - name: Zookeeper Native Client (local)
+    driver: "zookeeper"
+    host: "localhost:2181"
+    timeout: 5s
+    data: # Optional, check the specific value in the path
+      "/path/to/key": "value" # Check that the value of the `/path/to/key` is "value"
+    # mTLS - Optional
+    ca: /path/to/file.ca
+    cert: /path/to/file.crt
+    key: /path/to/file.key
+```
+
 
 
 # 2. Notification
+
 EaseProbe supports a variety of notifications. The notifications are **Edge-Triggered**, this means that these notifications are triggered when the status changes.
 
 Each notification is identified by the delivery it supports (eg `slack`), a unique name (across all notifies in the configuration file) and (optionally) the notify specific parameters.
@@ -126,7 +883,7 @@ And please be aware that the following configuration:
           interval: 10s # retry interval, default is 5s
     ```
 
-For a complete list of examples using all the notifications please check the [Notification Configuration](#78-notification-configuration) section.
+For a complete list of examples using all the notifications please check the [Notification Configuration](#72-notification-configuration) section.
 
 ## 2.1 Slack
 This notification method utilizes the Slack webhooks to deliver status updates as messages.
@@ -353,7 +1110,7 @@ notify:
 ```
 
 ## 2.12 Shell
-Run a shell command to notify the result. (see [example](resources/scripts/notify/notify.sh))
+Run a shell command to notify the result. (see [example](../resources/scripts/notify/notify.sh))
 
 The plugin supports the following parameters:
  - `name`: A unique name for this notification endpoint
@@ -428,7 +1185,7 @@ You can use the following URL query options for both HTML and JSON:
   - `gte`: filter the probers with SLA greater than or equal to the given percentage (ex. `?gte=50` filter only hosts with SLA percentage `>= 50%`)
   - `lte`:filter the probers with SLA less than or equal to the given percentage (ex. `?lte=90` filter only hosts with SLA percentage `<= 90%` )
 
-  Refer to the [Global Setting Configuration](#79-global-setting-configuration) to see how to configure the access log.
+  Refer to the [Global Setting Configuration](#73-global-setting-configuration) to see how to configure the access log.
 
 
 ## 3.3 SLA Data Persistence
@@ -447,7 +1204,7 @@ sla:
     data: /path/to/data/file.yaml
 ```
 
-For more information, please check the [Global Setting Configuration](#79-global-setting-configuration)
+For more information, please check the [Global Setting Configuration](#73-global-setting-configuration)
 
 
 # 4. Channel
@@ -471,34 +1228,34 @@ For example:
 ```YAML
 http:
    - name: probe A
-     channels : [ Dev_Channel, Manager_Channel ]
+     channels : [ Mgmt_Channel ]
 shell:
    - name: probe B
-     channels: [ Ops_Channel ]
+     channels: [ Dev_Channel, QA_Channel ]
 notify:
    - discord: Discord
-     channels: [ Dev_Channel, Ops_Channel ]
+     channels: [ Mgmt_Channel, Dev_Channel ]
    - email: Gmail
-     channels: [ Mgmt_Channel ]
+     channels: [ QA_Channel ]
 ```
 
 Then, we will have the following diagram
 
 ```
-┌───────┐          ┌──────────────┐
-│Probe B├─────────►│ Mgmt_Channel ├────┐
-└───────┘          └──────────────┘    │
-                                       │
-                                       │
-                   ┌─────────────┐     │   ┌─────────┐
-            ┌─────►│ Dev_Channel ├─────▼───► Discord │
-            │      └─────────────┘         └─────────┘
-┌───────┐   │
-│Probe A├───┤
-└───────┘   │
-            │      ┌────────────┐          ┌─────────┐
-            └─────►│ QA_Channel ├──────────►  Gmail  │
-                   └────────────┘          └─────────┘
+┌─────────┐        ┌──────────────┐
+│ Probe A ├───────►│ Mgmt_Channel ├──────────┐
+└─────────┘        └──────────────┘          │
+   http                                      │
+                                             │
+                   ┌──────────────┐     ┌────▼────┐
+              ┌───►│  Dev_Channel ├────►│ Discord │
+              │    └──────────────┘     └─────────┘
+┌─────────┐   │
+│ Probe B ├───┤
+└─────────┘   │
+   shell      │    ┌──────────────┐     ┌─────────┐
+              └───►│  QA_Channel  ├────►│  Gmail  │
+                   └──────────────┘     └─────────┘
 ```
 
 # 5. Administration
@@ -517,11 +1274,11 @@ pid: /var/run/easeprobe.pid
 - If the file already exists, EaseProbe would overwrite it.
 - If the file cannot be written, EaseProbe would exit with an error.
 
-If you want to disable the PID file, you can configure the pid file to "".
+If you want to disable the PID file, you can set it to "-" or "".
 
 ```YAML
 settings:
-pid: "" # EaseProbe won't create a PID file
+    pid: "" # EaseProbe won't create a PID file
 ```
 
 ## 5.2 Log file Rotation
@@ -558,16 +1315,28 @@ EaseProbe accepts the `HUP` signal to rotate the log.
 
 EaseProbe supports Prometheus metrics exporter. The Prometheus endpoint is `http://localhost:8181/metrics` by default.
 
+The following snapshot is the Grafana panel for host CPU metrics
+
+![](./grafana.demo.png)
+
+Refer to the [Global Setting Configuration](#73-global-setting-configuration) for further details on how to configure the HTTP server.
+
+## 6.1 General Metrics
+
 Currently, All of the Probers support the following metrics:
 
   - `total`: the total number of probes
+  - `total_time`: the total time(seconds) of status up or down
   - `duration`: Probe duration in milliseconds
   - `status`: Probe status
   - `SLA`: Probe SLA percentage
 
-And for the different Probers, the following metrics are available:
+And the different Probers have its own metrics.
 
-- HTTP Probe
+## 6.2 HTTP Probe
+
+The HTTP probe supports the following metrics:
+
   - `status_code`: HTTP status code
   - `content_len`: HTTP content length
   - `dns_duration`: DNS duration in milliseconds
@@ -578,25 +1347,44 @@ And for the different Probers, the following metrics are available:
   - `transfer_duration`: HTTP transfer duration in milliseconds
   - `total_duration`: HTTP total duration in milliseconds
 
-- TLS Probe
+## 6.3 Ping Probe
+
+The Ping probe supports the following metrics:
+
+  - `sent`: Number of sent packets
+  - `recv`: Number of received packets
+  - `loss`: Packet loss percentage
+  - `min_rtt`: Minimum round-trip time in milliseconds
+  - `max_rtt`: Maximum round-trip time in milliseconds
+  - `avg_rtt`: Average round-trip time in milliseconds
+  - `stddev_rtt`: Standard deviation of round-trip time in milliseconds
+  - `privileged`: Whether to use ICMP (`true`) or UDP (`false`) based ping probes, default `false`.
+
+Please note that `privileged: true` requires administrative privileges such as `root` (for more details see https://github.com/prometheus-community/pro-bing#supported-operating-systems)
+
+## 6.4 TLS Probe
+
+The TLS probe supports the following metrics:
+
   - `earliest_cert_expiry`: last TLS chain expiry in timestamp seconds
   - `last_chain_expiry_timestamp_seconds`: earliest TLS cert expiry in Unix time
 
-- Shell & SSH Probe
+## 6.5 Shell & SSH Probe
+
+The Shell & SSH probe supports the following metrics:
+
   - `exit_code`: exit code of the command
   - `output_len`: length of the output
 
-- Host Probe
+
+## 6.6 Host Probe
+
+The Host probe supports the following metrics:
+
   - `cpu`: CPU usage in percentage
   - `memory`: memory usage in percentage
   - `disk`: disk usage in percentage
-
-
-The following snapshot is the Grafana panel for host CPU metrics
-
-![](./grafana.demo.png)
-
-Refer to the [Global Setting Configuration](#79-global-setting-configuration) for further details on how to configure the HTTP server.
+  - `load`: load average for `m1`, `m5`, and `m15`
 
 
 # 7. Configuration
@@ -615,53 +1403,25 @@ The following environment variables can be used to fine-tune the request to the 
 * `HTTP_AUTHORIZATION`
 * `HTTP_TIMEOUT`
 
-And the configuration file should be versioned, the version should be aligned with the EaseProbe binary version.
+EaseProbe supports multiple configuration files, with the use of the command line flag `-f` which indicates the directory of the configuration files.
+
+```shell
+easeprobe -f /path/to/conf
+```
+
+
+The configuration file should be versioned, the version should be aligned with the EaseProbe binary version.
 
 ```yaml
 version: v1.5.0
 ```
 
-The following example configurations illustrate the EaseProbe supported features.
+You can find the full configuration template [here](../resources/config.yaml)
 
-**Note**:   All probes have the following options:
-
-- `timeout` - the maximum time to wait for the probe to complete. default: `30s`.
-- `interval` - the interval time to run the probe. default: `1m`.
-- `failure` - number of consecutive failed probes needed to determine the status down, default: 1
-- `success` - number of consecutive successful probes needed to determine the status up, default: 1
-
-## 7.1 HTTP Probe Configuration
-
-### 7.1.1 Basic HTTP Configuration
+## 7.1 Probe Configuration
 
 ```YAML
-# HTTP Probe Configuration
-
-http:
-  # A Website
-  - name: MegaEase Website (Global)
-    url: https://megaease.com
-
-  # Some of the Software support the HTTP Query
-  - name: ElasticSearch
-    url: http://elasticsearch.server:9200
-  - name: Eureka
-    url: http://eureka.server:8761
-  - name: Prometheus
-    url: http://prometheus:9090/graph
-
-  # Spring Boot Application with Actuator Heath API
-  - name: EaseService-Governance
-    url: http://easeservice-mgmt-governance:38012/actuator/health
-  - name: EaseService-Control
-    url: http://easeservice-mgmt-control:38013/actuator/health
-  - name: EaseService-Mesh
-    url: http://easeservice-mgmt-mesh:38013/actuator/health
-```
-
-### 7.1.2 Complete HTTP Configuration
-
-```yaml
+# --------------------- HTTP Probe Configuration ---------------------
 http:
   # A completed HTTP Probe configuration
   - name: Special Website
@@ -705,167 +1465,12 @@ http:
       expression: "x_time('//feed/updated') > '2022-07-01'" # the expression to evaluate.
     # configuration
     timeout: 10s # default is 30 seconds
-```
-
-> **Note**:
->
-> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
-> The XPath only supported 1.0/2.0) syntax. refer to https://www.w3.org/TR/xpath/, and the library is https://github.com/antchfx/xpath
-
-### 7.1.3 Expression Evaluation
-
-HTTP Probe supports two type of expression evaluation.
-
-- `XML`, `JSON`, `HTML `: using the **XPath(1.0/2.0)** to extract the value
-- `TEXT` : using the **Regression Expression** to extract the value
-
-And the configuration can be two types as below:
-
-**1) Variable Definition**
-
-```yaml
-  eval:
-    doc: XML # support  XML, JSON, HTML, TEXT
-    expression: "updated > '2022-07-01'"
-    variables: # variables definition
-        - name: updated # variable name
-            type: time # variable type, support `int`, `float`, `bool`, `time` and `duration`.
-            query: "//feed/updated" # the XPath query to get the variable value.
-```
-
-**2) Build-in XPath function Expression Evaluation**
-
-you can just use the XPath build-in function in expression so simplify the configuration.
-
-```yaml
-  eval:
-    doc: XML # support  XML, JSON, HTML, TEXT.
-    expression: "x_time('//feed/updated') > '2022-07-01'" # the expression to evaluate.
-```
-
-Currently, EaseProbe supports the following XPath functions:
-- `x_str` - get the string value from the XPath/RegExp query result.
-- `x_int` - get the integer value from the XPath/RegExp query result.
-- `x_float` - get the float value from the XPath/RegExp query result.
-- `x_time` - get the time value from the XPath/RegExp query result.
-- `x_duration` - get the duration value from the XPath/RegExp query result.
-
-**3) Build-in Functions**
-
-Currently, EaseProbe supports the following build-in functions:
-
-- `strlen` - get the string length.
-- `now` - get the current time.
-- `duration` - get the duration value.
+    failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
+    success: 1 # number of consecutive successful probes needed to determine the status up , default: 1
 
 
-For examples:
+# --------------------- TCP Probe Configuration ---------------------
 
-check the `time` from response is 5 seconds later than the current time.
-
-```yaml
-eval:
-   doc: HTML
-   expression: "now() - x_time('//div[@id=\\'time\\']') > 5"
-```
-
-
-Check the duration from response is less than 1 second.
-
-```yaml
-eval:
-    doc: HTML
-    expression: "duration(rt) < duration('1s')"
-    variables:
-        - name: rt # variable name `rt` will be used in expression.
-            type: duration # variable type is `duration`
-            query: "//div[@id=\\'time\\']" # the XPath query the value.
-```
-Or
-
-```yaml
-eval:
-    doc: HTML
-    expression: "x_duration('//div[@id=\\'resp_time\\']') < duration('1s')"
-```
-
-
-**4) XPath Syntax Example**
-
-Considering we have the following response:
-
-```json
-{
-    "company": {
-        "name": "MegaEase",
-        "person": [{
-                "name": "Bob",
-                "email": "bob@example.com",
-                "age": 35,
-                "salary": 35000.12,
-                "birth": "1984-10-12",
-                "work": "40h",
-                "fulltime": true
-            },
-            {
-                "name": "Alice",
-                "email": "alice@example.com",
-                "age": 25,
-                "salary": 25000.12,
-                "birth": "1985-10-12",
-                "work": "30h",
-                "fulltime": false
-            }
-        ]
-    }
-}
-```
-Then, the extraction syntax as below:
-
-```
-"//name"                                        ==>  "MegaEase"
-"//company/name"                                ==>  "MegaEase"
-"//email"                                       ==>  "bob@example.com"
-"//company/person/*[1]/name"                    ==>  "Bob"
-"//company/person/*[2]/emai                     ==>  "alice@example.com"
-"//company/person/*[last()]/name"               ==>  "Alice"
-"//company/person/*[last()]/age"                ==>  "25"
-"//company/person/*[salary=25000.12]/salary"    ==>  "25000.12"
-"//company/person/*[name='Bob']/birth"          ==>  "1984-10-12"
-"//company/person/*[name='Alice']/work"         ==>  "30h"
-"//*/email[contains(.,'bob')]"                  ==>  "bob@example.com"
-"//work",                                       ==>  "40h"
-"//person/*[2]/fulltime"                        ==>  "false"
-```
-
-**5) Regression Expression Syntax Examples**
-
-Considering we have the following response:
-
-`name: Bob, email: bob@example.com, age: 35, salary: 35000.12, birth: 1984-10-12, work: 40h, fulltime: true`
-
-Then, the extraction syntax as below:
-
-```
-"name: (?P<name>[a-zA-Z0-9 ]*)"           ==>  "Bob"
-"email: (?P<email>[a-zA-Z0-9@.]*)"        ==>  "bob@example.com"
-"age: (?P<age>[0-9]*)"                    ==>  "35"
-"age: (?P<age>\\d+)"                      ==>  "35"
-"salary: (?P<salary>[0-9.]*)"             ==>  "35000.12"
-"salary: (?P<salary>\\d+\\.\\d+)"         ==>  "35000.12"
-"birth: (?P<birth>[0-9-]*)"               ==>  "1984-10-12"
-"birth: (?P<birth>\\d{4}-\\d{2}-\\d{2})"  ==>  "1984-10-12"
-"work: (?P<work>\\d+[hms])"               ==>  "40h"
-"fulltime: (?P<fulltime>true|false)"      ==>  "true"
-```
-> Notes
->
-> Checking the unit test case in [`eval`](./eval/) package you can find more examples.
-
-## 7.2 TCP Probe Configuration
-
-```YAML
-# TCP Probe Configuration
 tcp:
   - name: SSH Service
     host: example.com:22
@@ -873,26 +1478,23 @@ tcp:
     interval: 2m # default is 60 seconds
     proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
                                       # Also support the `ALL_PROXY` environment.
-  - name: Kafka
-    host: kafka.server:9093
-```
+    failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
+    success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
 
-## 7.3 Shell Command Probe Configuration
+--------------------- Ping Probe Configuration ---------------------
 
-The shell command probe is used to execute a shell command and check the output.
+ping:
+  - name: Localhost
+    host: 127.0.0.1
+    count: 5 # number of packets to send, default: 3
+    lost: 0.2 # 20% lost percentage threshold, mark it down if the loss is greater than this, default: 0
+    privileged: true # if true, the ping will be executed with icmp, otherwise use udp, default: false (Note: On Windows platform, this must be set to True)
+    timeout: 10s # default is 30 seconds
+    interval: 2m # default is 60 seconds
 
-The following example shows how to configure the shell command probe.
+# --------------------- Shell Probe Configuration ---------------------
 
-```YAML
-# Shell Probe Configuration
 shell:
-  # A proxy curl shell script
-  - name: Google Service
-    cmd: "./resources/probe/scripts/proxy.curl.sh"
-    args:
-      - "socks5://127.0.0.1:1085"
-      - "www.google.com"
-
   # run redis-cli ping and check the "PONG"
   - name: Redis (Local)
     cmd: "redis-cli"
@@ -910,33 +1512,9 @@ shell:
     not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
     regex: false # if true, the `contain` and `not_contain` will be treated as regular expression. default: false
 
-  # Run Zookeeper command `stat` to check the zookeeper status
-  - name: Zookeeper (Local)
-    cmd: "/bin/sh"
-    args:
-      - "-c"
-      - "echo stat | nc 127.0.0.1 2181"
-    contain: "Mode:"
-```
 
-> **Note**:
->
-> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
+# --------------------- SSH Probe Configuration ---------------------
 
-## 7.4 SSH Command Probe Configuration
-
-SSH probe is similar to Shell probe.
-- Support Password and Private key authentication.
-- Support the Bastion host tunnel.
-
-The `host` supports the following configuration
-- `example.com`
-- `example.com:22`
-- `user@example.com:22`
-
-The following are examples of SSH probe configuration.
-
-```YAML
 # SSH Probe Configuration
 ssh:
   # SSH bastion host configuration
@@ -978,47 +1556,34 @@ ssh:
       username: ubuntu
       key: /path/to/private.key
       cmd: "ps -ef | grep kafka"
-```
-> **Note**:
->
-> The Regular Expression supported refer to https://github.com/google/re2/wiki/Syntax
 
-## 7.5 TLS Probe Configuration
 
-TLS ping to remote endpoint, can probe for revoked or expired certificates
+# --------------------- TLS Probe Configuration ---------------------
 
-```YAML
 tls:
-- name: expired test
+  - name: expired test
     host: expired.badssl.com:443
     proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
-                                    # Also support the `ALL_PROXY` environment.
-    insecure_skip_verify: true # dont check cert validity
-    expire_skip_verify: true # dont check cert expire date
-    alert_expire_before: 168h # alert if cert expire date is before X, the value is a Duration, see https://pkg.go.dev/time#ParseDuration. example: 1h, 1m, 1s. expire_skip_verify must be false to use this feature.
+                                      # Also support the `ALL_PROXY` environment.
+    insecure_skip_verify: true # don't check cert validity
+    expire_skip_verify: true   # don't check cert expire date
+    alert_expire_before: 168h  # alert if cert expire date is before X, the value is a Duration,
+                               # see https://pkg.go.dev/time#ParseDuration. example: 1h, 1m, 1s.
+                               # expire_skip_verify must be false to use this feature.
     # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
     # root_ca_pem: |
     #   -----BEGIN CERTIFICATE-----
-- name: untrust test
+  - name: untrust test
     host: untrusted-root.badssl.com:443
-    # insecure_skip_verify: true # dont check cert validity
-    # expire_skip_verify: true # dont check cert expire date
+    # insecure_skip_verify: true # don't check cert validity
+    # expire_skip_verify: true   # don't check cert expire date
     # root_ca_pem_path: /path/to/root/ca.pem # ignore if root_ca_pem is present
     # root_ca_pem: |
     #   -----BEGIN CERTIFICATE-----
-```
 
-## 7.6 Host Resource Usage Probe Configuration
 
-The host resource usage probe allows for collecting information and alerting when certain resource utilization thresholds are exceeded.
+# --------------------- Host Probe Configuration ---------------------
 
-The resources currently monitored include CPU, memory and disk utilization. The probe status is considered as `down` when any value exceeds its defined threshold.
-
-> **Note**:
-> - The host running EaseProbe needs the following commands to be installed on the remote system that will be monitored: `top`, `df`, `free`, `awk`, `grep`, `tr`, and `hostname` (check the [source code](./probe/host/host.go) for more details on this works and/or modify its behavior).
-> - The disk usage check is limited to the root filesystem only with the following command `df -h /`.
-
-```yaml
 host:
   bastion: # bastion server configuration
     aws: # bastion host ID      ◄──────────────────┐
@@ -1037,20 +1602,20 @@ host:
         cpu: 0.80  # cpu usage  80%
         mem: 0.70  # memory usage 70%
         disk: 0.90  # disk usage 90%
+        load: # load average - Note: the actual load would be divided by cpu core number, the threshold won't consider the cpu core number.
+          m1: 0.5  # 1 minute load average 0.5 (default: 0.8)
+          m5: 0.9  # 5 minute load average 0.9 (default: 0.8)
+          m15: 0.9 # 15 minute load average 0.9 (default: 0.8)
 
     # Using the default threshold
-    # cpu 80%, mem 80% and disk 95%
+    # cpu 80%, mem 80%, disk 95% and 0.8 load average
     - name : My VPS
       host: user@example.com:22
       key: /Users/user/.ssh/id_rsa
-```
 
-## 7.7 Native Client Probe Configuration
 
-Native Client probe uses the native GO SDK to communicate with the remote endpoints. Additionally to simple connectivity checks, you can also define key and data validity checks for EaseProbe, it will query for the given keys and verify the data stored on each service.
+# --------------------- Native Client Probe Configuration ---------------------
 
-```YAML
-# Native Client Probe
 client:
   - name: Redis Native Client (local)
     driver: "redis"  # driver is redis
@@ -1134,8 +1699,7 @@ client:
     key: /path/to/file.key
 ```
 
-
-## 7.8 Notification Configuration
+## 7.2 Notification Configuration
 
 ```YAML
 # Notification Configuration
@@ -1252,7 +1816,7 @@ notify:
 >     ```
 
 
-## 7.9 Global Setting Configuration
+## 7.3 Global Setting Configuration
 
 ```YAML
 # Global settings for all probes and notifiers.
@@ -1310,6 +1874,10 @@ settings:
     interval: 1m # probe every minute for all probes
     failure: 2 # number of consecutive failed probes needed to determine the status down, default: 1
     success: 1 # number of consecutive successful probes needed to determine the status up, default: 1
+    alert: # alert interval for all probes
+      strategy: "regular" # it can be "regular", "increment" or "exponent", default: "regular"
+      factor: 1 # the factor of the interval, default: 1
+      max: 5 # the max of the alert, default: 1
 
 
   # easeprobe program running log file.
@@ -1374,3 +1942,9 @@ In order to use the schema with VSCode for validating your configuration, you ne
   }
 }
 ```
+
+## 8.2 EaseProbe Deployment
+
+EaseProbe can be deployed by Systemd, Docker, & Kubernetes.
+
+You can find the details in [Deployment Guide](./Deployment.md)

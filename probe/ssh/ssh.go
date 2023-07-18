@@ -122,7 +122,7 @@ func (s *Server) Configure(gConf global.ProbeSettings,
 		return err
 	}
 
-	log.Debugf("[%s / %s] configuration: %+v", s.ProbeKind, s.ProbeName, s)
+	log.Debugf("[%s / %s] configuration: %+v", s.ProbeKind, s.ProbeName, *s)
 	return nil
 }
 
@@ -268,12 +268,14 @@ func (s *Server) RunSSHCmd() (string, error) {
 // ExportMetrics export shell metrics
 func (s *Server) ExportMetrics() {
 	s.metrics.ExitCode.With(prometheus.Labels{
-		"name": s.ProbeName,
-		"exit": fmt.Sprintf("%d", s.exitCode),
+		"name":     s.ProbeName,
+		"exit":     fmt.Sprintf("%d", s.exitCode),
+		"endpoint": s.ProbeResult.Endpoint,
 	}).Inc()
 
 	s.metrics.OutputLen.With(prometheus.Labels{
-		"name": s.ProbeName,
-		"exit": fmt.Sprintf("%d", s.exitCode),
+		"name":     s.ProbeName,
+		"exit":     fmt.Sprintf("%d", s.exitCode),
+		"endpoint": s.ProbeResult.Endpoint,
 	}).Set(float64(s.outputLen))
 }
