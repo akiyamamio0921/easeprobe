@@ -12,7 +12,7 @@ RUN --mount=type=cache,mode=0777,id=gomodcache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     make
 
-FROM scratch
+FROM alpine:latest
 
 ENV PATH=/opt/:$PATH \
     PROBE_CONFIG=/opt/config.yaml
