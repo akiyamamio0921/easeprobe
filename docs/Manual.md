@@ -41,6 +41,7 @@ EaseProbe has the following major modules:
     - [1.9.5 Kafka](#195-kafka)
     - [1.9.6 PostgreSQL](#196-postgresql)
     - [1.9.7 Zookeeper](#197-zookeeper)
+  - [1.10 WebSocket](#110-websocket)
 - [2. Notification](#2-notification)
   - [2.1 Slack](#21-slack)
   - [2.2 Discord](#22-discord)
@@ -851,6 +852,29 @@ client:
     cert: /path/to/file.crt
     key: /path/to/file.key
 ```
+## 1.10 WebSocket
+
+The websocket probe uses `websocket` identifier, it pings a websocket server with Ping/Pong message type of the WebSocket Protocol.
+
+```yaml
+websocket:
+  - name: asr-server
+    url: wss://example.com/asr/
+  - name: tts-server
+    url: wss://example.com/tts/
+    timeout: 5s
+    interval: 30s
+    headers:
+      Authorization: Bearer 2322f5d2-52d7-11ee-be56-0242ac120002
+    proxy: http://192.168.18.7
+    labels:
+      service: tts
+      idc: idc-a
+
+
+
+
+```
 
 
 
@@ -1073,7 +1097,7 @@ Support SMS notification with multiple SMS service providers
 
 - [Twilio](https://www.twilio.com/sms)
 - [Vonage(Nexmo)](https://developer.vonage.com/messaging/sms/overview)
-- [YunPian](https://www.yunpian.com/doc/en/domestic/list.html)
+- [YunPian](https://www.yunpian.com/official/document/sms/en/domestic_list?lang=en)
 
 The plugin supports the following parameters:
  - `name`: A unique name for this notification endpoint
@@ -1168,7 +1192,7 @@ EaseProbe supports minutely, hourly, daily, weekly, or monthly SLA reports.
 ```YAML
 settings:
 # SLA Report schedule
-sla:
+  sla:
     #  minutely, hourly, daily, weekly (Sunday), monthly (Last Day), none
     schedule: "weekly"
     # UTC time, the format is 'hour:min:sec'
@@ -1208,7 +1232,7 @@ When EaseProbe starts, it looks for the location of `data.yaml` and if found, lo
 
 ```YAML
 settings:
-sla:
+  sla:
     # SLA data persistence file path.
     # The default location is `$CWD/data/data.yaml`
     data: /path/to/data/file.yaml
@@ -1278,7 +1302,7 @@ The EaseProbe would create a PID file (default `$CWD/easeprobe.pid`) when it sta
 
 ```YAML
 settings:
-pid: /var/run/easeprobe.pid
+  pid: /var/run/easeprobe.pid
 ```
 
 - If the file already exists, EaseProbe would overwrite it.
@@ -1288,7 +1312,7 @@ If you want to disable the PID file, you can set it to "-" or "".
 
 ```YAML
 settings:
-    pid: "" # EaseProbe won't create a PID file
+  pid: "" # EaseProbe won't create a PID file
 ```
 
 ## 5.2 Log file Rotation
