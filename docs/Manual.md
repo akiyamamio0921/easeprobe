@@ -274,13 +274,14 @@ the following example configuration is a basic HTTP probe configuration, which o
 # HTTP Probe Configuration
 
 http:
-  # A Website
+  # A Website without SO_LINGER
   - name: MegaEase Website (Global)
     url: https://megaease.com
+    nolinger: true
     labels:
       team:  ease
       owner: megaease
-  # Some of the Software support the HTTP Query
+  # Some of the Software supports HTTP probing
   - name: ElasticSearch
     url: http://elasticsearch.server:9200
   - name: Eureka
@@ -339,12 +340,14 @@ http:
     # Response Checking
     contain: "success" # response body must contain this string, if not the probe is considered failed.
     not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
     regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
     eval: # eval is a expression evaluation for HTTP response message
       doc: XML # support  XML, JSON, HTML, TEXT.
       expression: "x_time('//feed/updated') > '2022-07-01'" # the expression to evaluate.
     # configuration
     timeout: 10s # default is 30 seconds
+    nolinger: true # Do not set SO_LINGER
 ```
 
 > **Note**:
@@ -517,6 +520,7 @@ tcp:
     host: example.com:22
     timeout: 10s # default is 30 seconds
     interval: 2m # default is 60 seconds
+    nolinger: true # Disable SO_LINGER
     proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
                                       # Also support the `ALL_PROXY` environment.
     labels:
@@ -576,6 +580,7 @@ shell:
     # check the command output, if does not contain the PONG, mark the status down
     contain : "PONG"
     not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
     regex: false # if true, the `contain` and `not_contain` will be treated as regular expression. default: false
 
   # Run Zookeeper command `stat` to check the zookeeper status
@@ -637,6 +642,7 @@ ssh:
       # check the command output, if does not contain the PONG, mark the status down
       contain : "PONG"
       not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+      with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
       regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
 
     # Check the process status of `Kafka`
@@ -646,6 +652,7 @@ ssh:
       username: ubuntu
       key: /path/to/private.key
       cmd: "ps -ef | grep kafka"
+      nolinger: true # Disable SO_LINGER
 ```
 > **Note**:
 >
@@ -661,6 +668,7 @@ tls:
     host: expired.badssl.com:443
     proxy: socks5://proxy.server:1080 # Optional. Only support socks5.
                                       # Also support the `ALL_PROXY` environment.
+    nolinger: true             # Disable SO_LINGER
     insecure_skip_verify: true # don't check cert validity
     expire_skip_verify: true   # don't check cert expire date
     alert_expire_before: 168h  # alert if cert expire date is before X, the value is a Duration,
@@ -870,10 +878,6 @@ websocket:
     labels:
       service: tts
       idc: idc-a
-
-
-
-
 ```
 
 
@@ -1195,7 +1199,9 @@ settings:
   sla:
     #  minutely, hourly, daily, weekly (Sunday), monthly (Last Day), none
     schedule: "weekly"
-    # UTC time, the format is 'hour:min:sec'
+    # the time to send the SLA report. Ignored on hourly and minutely schedules
+    # - the format is 'hour:min:sec'.
+    # - the timezone can be configured by `settings.timezone`, default is UTC.
     time: "23:59"
 ```
 
@@ -1493,6 +1499,7 @@ http:
     # Response Checking
     contain: "success" # response body must contain this string, if not the probe is considered failed.
     not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
     regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
     eval: # eval is a expression evaluation for HTTP response message
       doc: XML # support  XML, JSON, HTML, TEXT.
@@ -1544,6 +1551,7 @@ shell:
     # check the command output, if does not contain the PONG, mark the status down
     contain : "PONG"
     not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+    with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
     regex: false # if true, the `contain` and `not_contain` will be treated as regular expression. default: false
 
 
@@ -1581,6 +1589,7 @@ ssh:
       # check the command output, if does not contain the PONG, mark the status down
       contain : "PONG"
       not_contain: "failure" # response body must NOT contain this string, if it does the probe is considered failed.
+      with_output: false # if true, the error message will contain the output, it works for `contain` and `not_contain` field.
       regex: false # if true, the contain and not_contain will be treated as regular expression. default: false
 
     # Check the process status of `Kafka`
